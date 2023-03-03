@@ -64,7 +64,7 @@ class RegClsAdverbModel(nn.Module):
                                       args.text_emb_dim, heads=4, dropout=args.dropout)
         modifier_input = args.text_emb_dim
 
-        self.n_verbs = len(self.train_dataset.verbs)  # TODO ensure consistency and replace actions with verbs wherever
+        self.n_verbs = len(self.train_dataset.verbs)
         self.n_adverbs = len(self.train_dataset.adverbs)
         self.n_pairs = len(self.train_dataset.pairs)
         layers = build_mlp(modifier_input, self.n_adverbs, args.hidden_units, dropout=args.dropout)
