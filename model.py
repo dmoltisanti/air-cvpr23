@@ -59,32 +59,31 @@ class RegClsAdverbModel(nn.Module):
         super(RegClsAdverbModel, self).__init__()
         assert not (args.fixed_d and args.cls_variant)
         self.train_dataset = train_dataset
-        self.dataset = train_dataset
         self.args = args
-        self.attention = SDPAttention(self.dataset.feature_dim, args.emb_dim, args.emb_dim, args.emb_dim, heads=4,
-                                      dropout=args.dropout)
-        modifier_input = args.emb_dim
+        self.attention = SDPAttention(self.train_dataset.feature_dim, args.text_emb_dim, args.text_emb_dim,
+                                      args.text_emb_dim, heads=4, dropout=args.dropout)
+        modifier_input = args.text_emb_dim
 
-        self.n_verbs = len(self.dataset.actions)  # TODO ensure consistency and replace actions with verbs wherever
-        self.n_adverbs = len(self.dataset.adverbs)
-        self.n_pairs = len(self.dataset.pairs)
+        self.n_verbs = len(self.train_dataset.verbs)  # TODO ensure consistency and replace actions with verbs wherever
+        self.n_adverbs = len(self.train_dataset.adverbs)
+        self.n_pairs = len(self.train_dataset.pairs)
         layers = build_mlp(modifier_input, self.n_adverbs, args.hidden_units, dropout=args.dropout)
 
         self.rho = nn.Sequential(*layers)
         self.ce = nn.CrossEntropyLoss()
         self.mse = nn.MSELoss()
-        text_embeddings_verbs = TextEncoder.get_text_embeddings(args, self.dataset.actions)
+        text_embeddings_verbs = TextEncoder.get_text_embeddings(args, self.train_dataset.verbs)
         self.verb_embedding = nn.Embedding.from_pretrained(text_embeddings_verbs, freeze=False)
 
         _, _, delta_dict, d_dict, _, _, _, _ = TextEncoder.compute_delta(args, train_dataset.data_pickle,
-                                                                         train_dataset.adv_cat_df,
+                                                                         train_dataset.antonyms,
                                                                          no_ant=args.no_antonyms)
         self.delta_dict = delta_dict
         self.d_dict = d_dict
 
-    def forward(self, features, tuple_in, training=True):
+    def forward(self, features, labels_tuple, training=True):
         video_features = features[self.args.s3d_video_f]
-        adverbs, verbs, neg_adverbs = tuple_in
+        adverbs, verbs, neg_adverbs = labels_tuple
         query = self.verb_embedding(verbs)
         video_emb, attention_weights = self.attention(video_features, query)
 
@@ -97,12 +96,12 @@ class RegClsAdverbModel(nn.Module):
             if self.args.fixed_d:
                 d = torch.ones(len(adverbs)).cuda()
             else:
-                d = [self.delta_dict[self.dataset.idx2action[v.item()]][self.dataset.idx2adverb[a.item()]]
+                d = [self.delta_dict[self.train_dataset.idx2verb[v.item()]][self.train_dataset.idx2adverb[a.item()]]
                      for v, a in zip(verbs, adverbs)]
                 d = torch.Tensor(d).cuda()
 
-            target = self.create_target_from_sent_dist(d, adverbs, neg_adverbs)
-            loss = self.msez(o, target)
+            target = self.create_target_from_delta(d, adverbs, neg_adverbs)
+            loss = self.mse(o, target)
 
         if not training:
             predictions = self.get_predictions(video_features)
@@ -115,34 +114,30 @@ class RegClsAdverbModel(nn.Module):
 
         return output
 
-    def create_target_from_sent_dist(self, delta, adverbs, neg_adverbs):
+    def create_target_from_delta(self, delta, adverbs, neg_adverbs):
         assert delta.min() > 0  # the loss assumes this to flip the target for antonyms
-        e = 0 if self.add_target is None else self.add_target
         batch_size = len(adverbs)
         target = torch.zeros((batch_size, self.n_adverbs)).cuda()
-        target.scatter_(1, adverbs.unsqueeze(1), delta.unsqueeze(1) + e)
+        target.scatter_(1, adverbs.unsqueeze(1), delta.unsqueeze(1))
 
         if not self.args.no_antonyms:
-            target.scatter_(1, neg_adverbs.unsqueeze(1), -delta.unsqueeze(1) - e)
-
-        if self.mult_target is not None:
-            target = target * self.mult_target
+            target.scatter_(1, neg_adverbs.unsqueeze(1), -delta.unsqueeze(1))
 
         return target
 
-    def get_predictions(self, video_features, actions=None):
-        assert actions is None, 'Do not pass action labels. Predictions scores are later calculated accordingly'
+    def get_predictions(self, video_features, verbs=None):
+        assert verbs is None, 'Do not pass verb labels. Predictions scores are later calculated accordingly'
         batch_size = video_features.shape[0]
         pair_scores = torch.zeros((batch_size, self.n_pairs))
 
-        for verb_idx, verb_str in self.dataset.idx2action.items():
+        for verb_idx, verb_str in self.train_dataset.idx2verb.items():
             emb_idx = torch.LongTensor([verb_idx]).repeat(batch_size).cuda()
             q = self.verb_embedding(emb_idx)
             video_emb, _ = self.attention(video_features, q)
             adverb_pred = self.rho(video_emb)
 
-            for adv_idx, adv_str in self.dataset.idx2adverb.items():
-                p_idx = self.dataset.get_verb_adv_pair_idx(dict(verb=[verb_idx], adverb=[adv_idx]))
+            for adv_idx, adv_str in self.train_dataset.idx2adverb.items():
+                p_idx = self.train_dataset.get_verb_adv_pair_idx(dict(verb=[verb_idx], adverb=[adv_idx]))
                 assert len(p_idx) == 1
                 p_idx = p_idx[0]
                 pair_scores[:, p_idx] = adverb_pred[:, adv_idx]

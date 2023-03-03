@@ -61,21 +61,16 @@ class Dataset(torch.utils.data.Dataset):
         self.antonyms = {t.adverb: t.antonym for t in antonyms_df.itertuples()}
 
         self.feature_modalities = list(features_dict.keys())
-        self.features = {k: {} for k in features_dict.keys()}
-        self.metadata = {k: {} for k in features_dict.keys()}
-
-        for fm, fmd in features_dict.items():
-            self.features[fm] = fmd['features']
-            self.metadata[fm] = fmd['metadata']
-
+        self.features = features_dict['features']
+        self.metadata =  features_dict['metadata']
         self.feature_dim = feature_dim
 
         self.adverbs = pickle_data['adverbs']
-        self.actions = pickle_data['actions']
+        self.verbs = pickle_data['verbs']
         self.pairs = pickle_data['pairs']
         self.adverb2idx = pickle_data['adverb2idx']
-        self.action2idx = pickle_data['action2idx']
-        self.idx2action = pickle_data['idx2action']
+        self.verb2idx = pickle_data['verb2idx']
+        self.idx2verb = pickle_data['idx2verb']
         self.idx2adverb = {v: k for k, v in self.adverb2idx.items()}
         self.data_pickle = pickle_data
 
@@ -83,14 +78,14 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.df)
 
     def get_verb_adv_pair_idx(self, labels):
-        v_str = [self.idx2action[x.item() if isinstance(x, torch.Tensor) else x] for x in labels['verb']]
+        v_str = [self.idx2verb[x.item() if isinstance(x, torch.Tensor) else x] for x in labels['verb']]
         a_str = [self.idx2adverb[x.item() if isinstance(x, torch.Tensor) else x] for x in labels['adverb']]
         va_idx = [self.pairs.index((a, v)) for a, v in zip(a_str, v_str)]
         return va_idx
 
     def get_adverb_with_verb(self, verb):
         verb = verb.item() if isinstance(verb, torch.Tensor) else verb
-        verb_str = verb if isinstance(verb, str) else self.idx2action[verb]
+        verb_str = verb if isinstance(verb, str) else self.idx2verb[verb]
         return [a for a, v in self.pairs if v == verb_str]
 
     def get_verb_with_adverb_mask(self, adverb):
@@ -109,13 +104,8 @@ class Dataset(torch.utils.data.Dataset):
         adverb = segment.clustered_adverb
 
         labels = dict(verb=verb_label, adverb=adverb_label)
-
         metadata = {k: getattr(segment, k) for k in ('seg_id', 'start_time', 'end_time', 'clustered_adverb',
-                                                     'clustered_verb', 'sentence',
-                                                     'adverb_pre_mapping') if hasattr(segment, k)}
-
-        if 'adverb_pre_mapping' not in metadata and hasattr(segment, 'adverb'):
-            metadata['adverb_pre_mapping'] = segment['adverb']
+                                                     'clustered_verb') if hasattr(segment, k)}
 
         data, frame_samples = self.load_features(segment)
         metadata['frame_samples'] = frame_samples
@@ -133,24 +123,16 @@ class Dataset(torch.utils.data.Dataset):
 
     def load_features(self, segment):
         uid = self.get_seg_id(segment)
-        features = []
-        frame_samples = None
-
-        for feat_modality, feat in self.features.items():
-            if uid not in feat:
-                uid = self.get_seg_id(segment, to_str=False)
-
-            features.append(feat[uid])
-            metadata = self.metadata[feat_modality][uid]
-
-            if frame_samples is None and metadata is not None:
-                frame_samples = metadata['frame_samples'].squeeze()
-
-        if isinstance(features[0], torch.Tensor):
-            min_t = min(f.size(0) for f in features)  # flow features might have one frame less
-            features = torch.cat([f[:min_t] for f in features], dim=1)
-        else:
-            assert isinstance(features[0], dict) and self.feature_modalities == ['rgb']
-            features = features[0]
-
+        features = self.features[uid]
+        frame_samples = self.metadata[uid]['frame_samples'].squeeze()
         return features, frame_samples
+
+    @staticmethod
+    def get_seg_id(segment, to_str=True):
+        seg_id = segment['seg_id'] if isinstance(segment, dict) else getattr(segment, 'seg_id')
+
+        if to_str:
+            return str(seg_id)
+        else:
+            return seg_id
+

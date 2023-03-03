@@ -6,12 +6,12 @@ import torch
 class Evaluator:
     def __init__(self, dset):
         self.dset = dset
-        pairs = [(dset.adverb2idx[adv.strip()], dset.action2idx[act]) for adv, act in dset.pairs]
+        pairs = [(dset.adverb2idx[adv.strip()], dset.verb2idx[act]) for adv, act in dset.pairs]
         self.pairs = torch.LongTensor(pairs)
 
         # mask over pairs for ground-truth action given in testing
         action_gt_mask = []
-        for _act in dset.actions:
+        for _act in dset.verbs:
             mask = [1 if _act == act else 0 for _, act in dset.pairs]  # DM
             action_gt_mask.append(torch.BoolTensor(mask))
 

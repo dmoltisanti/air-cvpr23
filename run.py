@@ -5,10 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 import torch
-from model_action_adverb_modifiers import act_adv_factory
 from evaluator import Evaluator
 from model import RegClsAdverbModel
-from s3dg import S3D
 from sklearn.metrics import average_precision_score
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -23,7 +21,7 @@ def create_parser():
     parser.add_argument('test_df_path', type=Path)
     parser.add_argument('antonyms_df', type=Path)
     parser.add_argument('dataset_pickle_path', type=Path)
-    parser.add_argument('data_path', type=Path)
+    parser.add_argument('features_path', type=Path)
     parser.add_argument('output_path', type=Path)
     parser.add_argument('--checkpoint_path', default=None, type=Path)
     parser.add_argument('--train_batch', default=64, type=int)
@@ -34,14 +32,15 @@ def create_parser():
     parser.add_argument('--dropout', default=0.5, type=float)
     parser.add_argument('--weight_decay', default=5e-5, type=float)
     parser.add_argument('--epochs', default=1000, type=int)
-    parser.add_argument('--run_tags', default=['lr', 'train_batch', 'dropout'], action='append')
+    parser.add_argument('--run_tags', default=['lr', 'train_batch', 'dropout', 's3d_video_f'], action='append')
     parser.add_argument('--tag', default=None, type=str)
     parser.add_argument('--train_only', action='store_true')
     parser.add_argument('--test_only', action='store_true')
     parser.add_argument('--test_frequency', default=10, type=int)
     parser.add_argument('--hidden_units', default='512,512,512', type=str)
-    parser.add_argument('--s3d_init_folder', type=Path, default=None)
+    parser.add_argument('--s3d_init_folder', type=Path, default='./s3d')  # TODO clone repo and download stuff in the setup
     parser.add_argument('--s3d_video_f', default='s3d_features', type=str)
+    parser.add_argument('--text_emb_dim', default=512, type=int)
 
     parser.add_argument('--no_antonyms', action='store_true')
     parser.add_argument('--fixed_d', action='store_true')
@@ -61,12 +60,12 @@ def setup_data(args):
     feature_dim = 512 if args.s3d_video_f == 'video_embedding_joint_space' else 1024
     collate_fn = collate_variable_length_seq
 
-    features_train, _ = load_features_set(args, 'rgb', 'train')
-    features_test, _ = load_features_set(args, 'rgb', 'test')
+    features_train, _ = load_features(args, 'train')
+    features_test, _ = load_features(args, 'test')
 
     train_dataset = Dataset(train_df, antonyms_df, features_train, dataset_pickle, feature_dim,
                             no_antonyms=args.no_antonyms)
-    train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=True,
+    train_loader = DataLoader(train_dataset, batch_size=args.train_batch, shuffle=True,
                               pin_memory=True, num_workers=args.train_workers, collate_fn=collate_fn)
 
     test_dataset = Dataset(test_df, antonyms_df, features_test, dataset_pickle, feature_dim,
@@ -78,11 +77,11 @@ def setup_data(args):
     return train_loader, test_loader
 
 
-def load_features_set(args, feature_modality, set_):
+def load_features(args, set_):
     feature_dict = {}
-    data_path = args.data_path / feature_modality / f'{set_}.pth'
-    print(f'Loading features from {data_path}')
-    fd = torch.load(data_path, map_location=torch.device('cpu'))
+    features_path = args.features_path / f'{set_}.pth'
+    print(f'Loading features from {features_path}')
+    fd = torch.load(features_path, map_location=torch.device('cpu'))
     features = fd['features']
     feature_dim = None
 
@@ -128,7 +127,7 @@ def setup_optimiser(model, args):
     return torch.optim.Adam(optim_params, lr=args.lr, weight_decay=args.weight_decay)
 
 
-def setup_criterion(args, train_dataset):
+def setup_criterion():
     # the loss is calculated already by the model
     def loss_wrapper(output, labels):
         loss = output[0]
@@ -165,24 +164,27 @@ def to_cuda(data_tuple):
         return data_tuple
 
 
-def train(loader, model, optimiser, criterion, args, evaluator, epoch=None):
+def train(loader, model, optimiser, criterion, evaluator):
     model.train()
-    avg_loss, output, metadata = run_through_loader(model, loader, criterion, optimiser, args, evaluator,
-                                                    tag='Training', epoch=epoch)
-    return avg_loss, output, metadata
+    return run_through_loader(model, loader, criterion, optimiser, evaluator, tag='Training')
 
 
-def run_through_loader(model, loader, criterion, optimiser, args, evaluator, tag, optimise=True, epoch=None, **kwargs):
+def test(model, loader, criterion, evaluator):
+    model.eval()
+
+    with torch.no_grad():
+        return run_through_loader(model, loader, criterion, None, evaluator, tag='Testing', optimise=False)
+
+
+def run_through_loader(model, loader, criterion, optimiser, evaluator, tag, optimise=True):
     bar = tqdm(desc=tag, file=sys.stdout, total=len(loader))
     loss_batches = []
-    all_output = {}
+    scores = {}
     all_metadata = None
-    return_df = False
 
     for x_tuple in loader:
-        batch_output, loss, batch_labels, batch_metadata = process_batch(x_tuple, model, criterion, args, optimise,
-                                                                         epoch=epoch, **kwargs)
-        batch_output_dict = get_output_dict(batch_output, batch_labels, loader.dataset, evaluator)
+        batch_output, loss, batch_labels, batch_metadata = process_batch(x_tuple, model, criterion, optimise)
+        batch_scores = get_scores(batch_output, batch_labels, loader.dataset, evaluator)
 
         if optimise:
             loss.backward()
@@ -195,14 +197,15 @@ def run_through_loader(model, loader, criterion, optimiser, args, evaluator, tag
 
         bar.update()
 
-        for k, o in batch_output_dict.items():
-            if o is None:
-                continue
+        if batch_scores is not None:
+            for k, o in batch_scores.items():
+                if o is None:
+                    continue
 
-            if k not in all_output:
-                all_output[k] = []
+                if k not in scores:
+                    scores[k] = []
 
-            all_output[k].append(o.detach())
+                scores[k].append(o.detach())
 
         if all_metadata is None:
             all_metadata = {k: [] for k in batch_metadata.keys()}
@@ -219,16 +222,19 @@ def run_through_loader(model, loader, criterion, optimiser, args, evaluator, tag
 
     avg_loss = torch.Tensor(loss_batches).mean().item()
 
-    if not return_df:
-        all_output = {k: torch.cat([x.unsqueeze(0) if x.ndim == 1 else x for x in v], dim=0) if v else None
-                      for k, v in all_output.items()}
+    scores = {k: torch.cat([x.unsqueeze(0) if x.ndim == 1 else x for x in v], dim=0) if v else None
+              for k, v in scores.items()}
 
-    return avg_loss, all_output, all_metadata
+    return avg_loss, scores, all_metadata
 
 
-def get_output_dict(output, labels, dataset, evaluator, stack_scores=False):
+def get_scores(output, labels, dataset, evaluator, stack_scores=False):
     with torch.no_grad():
         predictions = output[1]
+
+        if predictions is None:
+            return None
+
         predictions, predictions_no_act_gt = predictions
         adverb_gt, verb_gt = labels['adverb'], labels['verb']
 
@@ -258,11 +264,11 @@ def get_output_dict(output, labels, dataset, evaluator, stack_scores=False):
                                                for adv in dataset.adverbs])
 
             y_score[idx] = torch.Tensor(
-                [action_gt_scores[idx][dataset.pairs.index((adv, dataset.idx2action[verb_gt[idx].item()]))]
+                [action_gt_scores[idx][dataset.pairs.index((adv, dataset.idx2verb[verb_gt[idx].item()]))]
                  for adv in dataset.adverbs])
 
             y_score_antonym[idx] = torch.Tensor(
-                [antonym_action_gt_scores[idx][dataset.pairs.index((adv, dataset.idx2action[verb_gt[idx].item()]))]
+                [antonym_action_gt_scores[idx][dataset.pairs.index((adv, dataset.idx2verb[verb_gt[idx].item()]))]
                     for adv in dataset.adverbs])
 
             for ia, a in enumerate(dataset.adverbs):
@@ -277,76 +283,50 @@ def get_output_dict(output, labels, dataset, evaluator, stack_scores=False):
         return out_dict
 
 
-def process_batch(x_tuple, model, criterion, args, training, epoch=None, **kwargs):
-    x, labels, metadata = x_tuple
-    x, labels = to_cuda((x, labels))
-    output = get_model_output(x, labels, metadata, model, args, training, epoch=epoch, **kwargs)
+def process_batch(x_tuple, model, criterion, training):
+    features, labels, metadata = x_tuple
+    features, labels = to_cuda((features, labels))
+
+    adverbs = labels['adverb']
+    verbs = labels['verb']
+    neg_adverbs = torch.LongTensor(metadata['negative_adverb']).cuda()
+    labels_tuple = (adverbs, verbs, neg_adverbs)
+    output = model(features, labels_tuple, training=training)
+
     loss = criterion(output, labels)
     return output, loss, labels, metadata
 
 
-def get_model_output(x, labels, metadata, model, args, training, epoch=None, **kwargs):
-    features = x
-    adverbs = labels['adverb']
-    actions = labels['verb']
-    neg_adverbs = torch.LongTensor(metadata['negative_adverb']).cuda()
-    sentences = metadata.get('sentence', None)
-    adverb_pre_mapping = metadata.get('adverb_pre_mapping', None)
-    ids = metadata['seg_id']
-    tuple_in = (adverbs, actions, neg_adverbs, neg_actions, sentences, adverb_pre_mapping, ids)  # TODO update model input, remove sentences, neg_actions etc
-    output = model(features, tuple_in, training=training, freeze_adv=freeze_adv)
-    return output
+def compute_evaluation_metrics(scores, dataset_size):
+    if not scores:
+        return {}
 
-
-def test(model, loader, criterion, args, evaluator):
-    model.eval()
-
-    with torch.no_grad():
-        avg_loss, output, metadata = run_through_loader(model, loader, criterion, None, args, evaluator,
-                                                        tag='Testing', optimise=False)
-
-    return avg_loss, output, metadata
-
-
-def compute_evaluation_metrics(output, args, dataset_size):
-    y_true_adverb = output['y_true_adverb'].cpu()
-    y_score_antonym = output['y_score_antonym'].cpu()
-    y_score = output['y_score'].cpu()
-    y_score_antonym_no_act_gt = output['y_score_antonym_no_act_gt'].cpu()
-    y_score_no_act_gt = output['y_score_no_act_gt'].cpu()
+    y_true_adverb = scores['y_true_adverb'].cpu()
+    y_score_antonym = scores['y_score_antonym'].cpu()
+    y_score = scores['y_score'].cpu()
+    y_score_antonym_no_act_gt = scores['y_score_antonym_no_act_gt'].cpu()
+    y_score_no_act_gt = scores['y_score_no_act_gt'].cpu()
 
     assert all(x.shape[0] == dataset_size for x in (y_true_adverb, y_score_antonym, y_score))
-
-    em = {}
+    metrics = {}
 
     for p, ysa, ys in zip(('', 'no_act_gt/'),
                           (y_score_antonym, y_score_antonym_no_act_gt),
                           (y_score, y_score_no_act_gt)):
-        v2a_ant = (torch.argmax(y_true_adverb, dim=1) == torch.argmax(ysa, dim=1)).float().mean().item()
-        v2a_all = average_precision_score(y_true_adverb, ys, average='samples')
+        map_w = average_precision_score(y_true_adverb, ys, average='weighted')
+        map_m = average_precision_score(y_true_adverb, ys)
+        acc_a = (torch.argmax(y_true_adverb, dim=1) == torch.argmax(ysa, dim=1)).float().mean().item()
 
-        a2v_ant = average_precision_score(y_true_adverb, ysa)
-        a2v_all = average_precision_score(y_true_adverb, ys)
+        metrics[f'{p}map_w'] = map_w
+        metrics[f'{p}map_m'] = map_m
+        metrics[f'{p}acc_a'] = acc_a
 
-        a2v_ant_w = average_precision_score(y_true_adverb, ysa, average='weighted')
-        a2v_all_w = average_precision_score(y_true_adverb, ys, average='weighted')
-
-        em[f'{p}vid_to_adv_ant'] = v2a_ant
-        em[f'{p}vid_to_adv_all'] = v2a_all
-
-        em[f'{p}adv_to_vid_ant'] = a2v_ant
-        em[f'{p}adv_to_vid_all'] = a2v_all
-
-        em[f'{p}adv_to_vid_ant_w'] = a2v_ant_w
-        em[f'{p}adv_to_vid_all_w'] = a2v_all_w  # TODO rename metrics
-
-    return em
+    return metrics
 
 
 def run(model, train_loader, test_loader, optimiser, criterion, args, evaluators, output_dict):
     log_writer = SummaryWriter(log_dir=output_dict['logs'])
-    dump_for = ('test_vid_to_adv_ant', 'test_vid_to_adv_all', 'test_adv_to_vid_ant', 'test_adv_to_vid_all',
-                'test_vid_to_action')  # TODO rename metrics
+    dump_for = ('test_map_w', 'test_map_m', 'test_acc_a')
 
     train_eval = evaluators.get('train', None)
     test_eval = evaluators.get('test', None)
@@ -359,21 +339,20 @@ def run(model, train_loader, test_loader, optimiser, criterion, args, evaluators
         print('=' * 120)
 
         if not args.test_only:
-            train_loss, train_output, train_metadata = train(train_loader, model, optimiser, criterion, args,
-                                                             train_eval, epoch=epoch)
-            train_metrics = compute_evaluation_metrics(train_output, args, len(train_loader.dataset))
+            train_loss, train_scores, train_metadata = train(train_loader, model, optimiser, criterion, train_eval)
+            train_metrics = compute_evaluation_metrics(train_scores, len(train_loader.dataset))
             log_run(epoch, log_writer, train_metrics, train_loss, 'Train')
         else:
             train_loss = None
             train_metrics = {}
 
         if epoch == 1 or epoch % args.test_frequency == 0:
-            test_loss, test_output, test_metadata = test(model, test_loader, criterion, args, test_eval)
-            test_metrics = compute_evaluation_metrics(test_output, args, len(test_loader.dataset))
+            test_loss, test_scores, test_metadata = test(model, test_loader, criterion, test_eval)
+            test_metrics = compute_evaluation_metrics(test_scores, len(test_loader.dataset))
             log_run(epoch, log_writer, test_metrics, test_loss, 'Test')
         else:
             test_loss = None
-            test_output = None
+            test_scores = None
             test_metrics = {}
 
         summary_dict = dict(epoch=epoch, train_loss=train_loss, test_loss=test_loss)
@@ -402,18 +381,10 @@ def run(model, train_loader, test_loader, optimiser, criterion, args, evaluators
                 if metric in dump_for:
                     best_output_path = output_dict['model_output'] / f'best_{metric}.pth'
                     print(f'Best {metric} so far, dumping model output and state')
-                    torch.save(test_output, best_output_path)
+                    torch.save(test_scores, best_output_path)
                     best_state_path = output_dict['model_state'] / f'best_{metric}.pth'
                     state_dict = model.module.state_dict() if isinstance(model, torch.nn.DataParallel) \
                         else model.state_dict()
-
-                    if 'glove_emb' in state_dict:
-                        state_dict.pop('glove_emb')
-
-                    to_pop_s3d = [k for k in state_dict.keys() if k.startswith('s3d')]
-
-                    for k in to_pop_s3d:
-                        state_dict.pop(k)
 
                     state = dict(model_state=state_dict, optimiser=optimiser.state_dict(), epoch=epoch)
                     torch.save(state, best_state_path)
@@ -455,15 +426,26 @@ def log_run(epoch, log_writer, metrics, loss, tag):
         print(f'{k_tag} {k}: {v:0.4f}')
 
 
-def setup_output(args):
+def setup_run_output(args):
     run_tags = tuple(args.run_tags)
     sub_paths = ('logs', 'model_output', 'model_state')
 
     if args.tag is not None:
-        run_tags += ('tag', 's3d_video_f')
+        run_tags += ('tag',)
 
     run_id = ';'.join([f'{attr}={getattr(args, attr)}' for attr in run_tags])
-    output_path = args.output_path / args.model / args.modality / args.labels / run_id
+
+    if args.cls_variant:
+        variant = 'cls'
+    elif args.fixed_d:
+        variant = 'reg_fixed_d'
+    else:
+        variant = 'reg'
+
+    if args.no_antonyms:
+        variant += '_no_antonyms'
+
+    output_path = args.output_path / variant / run_id
 
     count = 0
 
@@ -491,11 +473,12 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
     assert not (args.fixed_d and args.cls_variant)
-    output_dict, run_id = setup_output(args)
+    assert not (args.no_antonyms and args.cls_variant)
+    output_dict, run_id = setup_run_output(args)
     train_loader, test_loader = setup_data(args)
     evaluators = setup_evaluator(train_loader.dataset, test_loader.dataset)
     model = setup_model(train_loader.dataset, args)
-    criterion = setup_criterion(args, train_loader.dataset)
+    criterion = setup_criterion()
     optimiser = setup_optimiser(model, args)
     run(model, train_loader, test_loader, optimiser, criterion, args, evaluators, output_dict)
 
