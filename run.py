@@ -52,7 +52,7 @@ def create_parser():
                                                                                           'can download them from '
                                                                                           'https://github.com/'
                                                                                           'antoine77340/'
-                                                                                          'S3D_HowTo100M')  # TODO clone repo and download stuff in the setup
+                                                                                          'S3D_HowTo100M')
     parser.add_argument('--no_antonyms', action='store_true', help='Whether you want to discard antonyms. See '
                                                                    'paper for more details')
     parser.add_argument('--fixed_d', action='store_true', help='Runs the regression variant with fixed delta equal to '
@@ -234,7 +234,7 @@ def get_scores(output, labels, dataset, evaluator, stack_scores=False):
             return None
 
         predictions, predictions_no_act_gt = predictions
-        adverb_gt, verb_gt = labels['adverb'], labels['verb']
+        adverb_gt, verb_gt = labels['adverb'].cpu(), labels['verb'].cpu()
 
         if stack_scores:
             scores_no_act_gt = torch.stack([predictions_no_act_gt[(adv, act)] for adv, act in dataset.pairs], 1)

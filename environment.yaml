@@ -1,0 +1,15 @@
+name: air_adverbs_cvpr23
+channels:
+  - defaults
+dependencies:
+  - pytorch::pytorch
+  - pytorch::torchvision
+  - nvidia::cudatoolkit=11
+  - numpy
+  - pip
+  - scikit-learn
+  - tqdm
+  - pandas
+  - tensorboard
+  - pip:
+    - opencv-python

@@ -14,7 +14,7 @@ from torchvision.transforms import transforms
 from tqdm import tqdm
 import torchvision.transforms.functional as F
 import dataset
-from run import run_through_loader, to_cuda
+from run import to_cuda
 from s3dg import S3D
 
 
