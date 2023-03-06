@@ -1,5 +1,4 @@
 import argparse
-import pickle
 import sys
 from pathlib import Path
 
@@ -12,7 +11,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from dataset import Dataset, collate_variable_length_seq
+from dataset import Dataset, collate_variable_length_seq, get_verbs_adverbs_pairs
 
 
 def create_parser():
@@ -20,7 +19,6 @@ def create_parser():
     parser.add_argument('train_df_path', type=Path)
     parser.add_argument('test_df_path', type=Path)
     parser.add_argument('antonyms_df', type=Path)
-    parser.add_argument('dataset_pickle_path', type=Path)
     parser.add_argument('features_path', type=Path)
     parser.add_argument('output_path', type=Path)
     parser.add_argument('--checkpoint_path', default=None, type=Path)
@@ -53,9 +51,7 @@ def setup_data(args):
     train_df = pd.read_csv(args.train_df_path)
     test_df = pd.read_csv(args.test_df_path)
     antonyms_df = pd.read_csv(args.antonyms_df)
-
-    with open(args.dataset_pickle_path, 'rb') as f:
-        dataset_pickle = pickle.load(f)
+    dataset_data = get_verbs_adverbs_pairs(train_df, test_df)
 
     feature_dim = 512 if args.s3d_video_f == 'video_embedding_joint_space' else 1024
     collate_fn = collate_variable_length_seq
@@ -63,12 +59,12 @@ def setup_data(args):
     features_train, _ = load_features(args, 'train')
     features_test, _ = load_features(args, 'test')
 
-    train_dataset = Dataset(train_df, antonyms_df, features_train, dataset_pickle, feature_dim,
+    train_dataset = Dataset(train_df, antonyms_df, features_train, dataset_data, feature_dim,
                             no_antonyms=args.no_antonyms)
     train_loader = DataLoader(train_dataset, batch_size=args.train_batch, shuffle=True,
                               pin_memory=True, num_workers=args.train_workers, collate_fn=collate_fn)
 
-    test_dataset = Dataset(test_df, antonyms_df, features_test, dataset_pickle, feature_dim,
+    test_dataset = Dataset(test_df, antonyms_df, features_test, dataset_data, feature_dim,
                            no_antonyms=args.no_antonyms)
 
     test_loader = DataLoader(test_dataset, batch_size=args.test_batch, shuffle=False, pin_memory=True,

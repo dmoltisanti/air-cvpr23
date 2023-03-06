@@ -75,7 +75,7 @@ class RegClsAdverbModel(nn.Module):
         text_embeddings_verbs = TextEncoder.get_text_embeddings(args, self.train_dataset.verbs)
         self.verb_embedding = nn.Embedding.from_pretrained(text_embeddings_verbs, freeze=False)
 
-        _, _, delta_dict, d_dict, _, _, _, _ = TextEncoder.compute_delta(args, train_dataset.data_pickle,
+        _, _, delta_dict, d_dict, _, _, _, _ = TextEncoder.compute_delta(args, train_dataset.dataset_data,
                                                                          train_dataset.antonyms,
                                                                          no_ant=args.no_antonyms)
         self.delta_dict = delta_dict

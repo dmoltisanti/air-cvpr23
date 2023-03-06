@@ -32,7 +32,7 @@ def extract_frames_for_video(video_path, output_path, frame_height=256, quality=
     process = subprocess.Popen(['ffmpeg', '-loglevel', 'error', '-hwaccel', 'cuda', '-i', video_path,
                                 '-vf', f'scale=-2:{frame_height}',
                                 '-qscale:v', str(quality), '-y', output_],
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # TODO add parameter to choose not to use cuda
 
     _, ffmpeg_err = process.communicate()
     ffmpeg_err = ffmpeg_err.decode()

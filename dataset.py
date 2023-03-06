@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import torch
 from torch.nn.utils.rnn import pad_packed_sequence, pack_sequence
 
@@ -53,8 +54,29 @@ def collate_variable_length_seq(batch, padding_value=0, modality='rgb'):
     return padded_sequence, labels, metadata
 
 
+def get_verbs_adverbs_pairs(train_df, test_df):
+    df = pd.concat([train_df, test_df])
+    adverbs = df.clustered_adverb.value_counts().index.to_list()  # sorted by frequency
+    verbs = df.clustered_verb.value_counts().index.to_list()
+    adverb2idx = {a: i for i, a in enumerate(adverbs)}
+    idx2adverb = {i: a for i, a, in enumerate(adverbs)}
+    verb2idx = {a: i for i, a in enumerate(verbs)}
+    idx2verb = {i: a for i, a in enumerate(verbs)}
+    pairs = []
+
+    for a in adverbs:
+        for v in verbs:
+            pairs.append((a, v))
+
+    dataset_data = {'adverbs': adverbs, 'verbs': verbs,
+                    'adverb2idx': adverb2idx, 'idx2adverb': idx2adverb,
+                    'verb2idx': verb2idx, 'idx2verb': idx2verb, 'pairs': pairs}
+
+    return dataset_data
+
+
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, df,  antonyms_df, features_dict, pickle_data, feature_dim, no_antonyms=False):
+    def __init__(self, df, antonyms_df, features_dict, dataset_data, feature_dim, no_antonyms=False):
         self.df = df
         self.random_generator = np.random.default_rng()
         self.no_antonyms = no_antonyms
@@ -65,14 +87,14 @@ class Dataset(torch.utils.data.Dataset):
         self.metadata =  features_dict['metadata']
         self.feature_dim = feature_dim
 
-        self.adverbs = pickle_data['adverbs']
-        self.verbs = pickle_data['verbs']
-        self.pairs = pickle_data['pairs']
-        self.adverb2idx = pickle_data['adverb2idx']
-        self.verb2idx = pickle_data['verb2idx']
-        self.idx2verb = pickle_data['idx2verb']
-        self.idx2adverb = {v: k for k, v in self.adverb2idx.items()}
-        self.data_pickle = pickle_data
+        self.adverbs = dataset_data['adverbs']
+        self.verbs = dataset_data['verbs']
+        self.pairs = dataset_data['pairs']
+        self.adverb2idx = dataset_data['adverb2idx']
+        self.verb2idx = dataset_data['verb2idx']
+        self.idx2verb = dataset_data['idx2verb']
+        self.idx2adverb =  dataset_data['idx2adverb']
+        self.dataset_data = dataset_data
 
     def __len__(self):
         return len(self.df)
