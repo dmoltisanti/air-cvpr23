@@ -61,6 +61,7 @@ def setup_data(args):
 
     train_dataset = Dataset(train_df, antonyms_df, features_train, dataset_data, feature_dim,
                             no_antonyms=args.no_antonyms)
+
     train_loader = DataLoader(train_dataset, batch_size=args.train_batch, shuffle=True,
                               pin_memory=True, num_workers=args.train_workers, collate_fn=collate_fn)
 

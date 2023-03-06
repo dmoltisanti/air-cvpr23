@@ -82,7 +82,6 @@ class Dataset(torch.utils.data.Dataset):
         self.no_antonyms = no_antonyms
         self.antonyms = {t.adverb: t.antonym for t in antonyms_df.itertuples()}
 
-        self.feature_modalities = list(features_dict.keys())
         self.features = features_dict['features']
         self.metadata =  features_dict['metadata']
         self.feature_dim = feature_dim
