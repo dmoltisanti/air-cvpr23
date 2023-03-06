@@ -1,3 +1,5 @@
+# Extract RGB frames from videos using ffmpeg
+
 import argparse
 import subprocess
 import sys
@@ -11,15 +13,21 @@ from tqdm import tqdm
 
 
 def create_parser():
-    parser = argparse.ArgumentParser(add_help=True)
-    parser.add_argument('train_df_path', type=Path)
-    parser.add_argument('test_df_path', type=Path)
-    parser.add_argument('videos_path', type=Path)
-    parser.add_argument('output_path', type=Path)
-    parser.add_argument('--frame_height', default=256, type=int)
-    parser.add_argument('--quality', default=4, type=int)
-    parser.add_argument('--ext', default='mp4', type=str)
-    parser.add_argument('--cuda', action='store_true')
+    parser = argparse.ArgumentParser(add_help=True, description='Extract RGB frames from videos using ffmpeg. '
+                                                                'If you have an ffmpeg compiled with cuda specify '
+                                                                '--cuda. You might need to deactivate the conda '
+                                                                'environment to call the cuda-enabled ffmpeg')
+    parser.add_argument('train_df_path', type=Path, help='Path to the train set''s csv file')
+    parser.add_argument('test_df_path', type=Path, help='Path to the test set''s csv file')
+    parser.add_argument('videos_path', type=Path, help='Path to the videos')
+    parser.add_argument('output_path', type=Path, help='Where you want to save the frames')
+    parser.add_argument('--frame_height', default=256, type=int, help='Height of the frame for resizing, in pixels')
+    parser.add_argument('--quality', default=4, type=int, help='ffmpeg quality of the extracted image')
+    parser.add_argument('--ext', default='mp4', type=str, help='Video file extension')
+    parser.add_argument('--cuda', action='store_true', help='Use ffmpeg with cuda hardware acceleration. '
+                                                            'If you have an ffmpeg compiled with cuda specify '
+                                                            '--cuda. You might need to deactivate the conda '
+                                                            'environment to call the cuda-enabled ffmpeg')
 
     return parser
 

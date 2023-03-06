@@ -1,3 +1,5 @@
+# Model class for the CVPR 23 paper: "Learning Action Changes by Measuring Verb-Adverb Textual Relationships"
+
 import torch.nn as nn
 import torch
 from attention import SDPAttention
@@ -55,14 +57,14 @@ def build_mlp(channels_in, channels_out, hidden_units, bn=False, dropout=0.0, ac
 
 
 class RegClsAdverbModel(nn.Module):
-    def __init__(self, train_dataset, args):
+    def __init__(self, train_dataset, args, text_emb_dim=512):
         super(RegClsAdverbModel, self).__init__()
         assert not (args.fixed_d and args.cls_variant)
         self.train_dataset = train_dataset
         self.args = args
-        self.attention = SDPAttention(self.train_dataset.feature_dim, args.text_emb_dim, args.text_emb_dim,
-                                      args.text_emb_dim, heads=4, dropout=args.dropout)
-        modifier_input = args.text_emb_dim
+        self.attention = SDPAttention(self.train_dataset.feature_dim, text_emb_dim, text_emb_dim,
+                                      text_emb_dim, heads=4, dropout=args.dropout)
+        modifier_input = text_emb_dim
 
         self.n_verbs = len(self.train_dataset.verbs)
         self.n_adverbs = len(self.train_dataset.adverbs)
@@ -82,7 +84,7 @@ class RegClsAdverbModel(nn.Module):
         self.d_dict = d_dict
 
     def forward(self, features, labels_tuple, training=True):
-        video_features = features[self.args.s3d_video_f]
+        video_features = features['s3d_features']
         adverbs, verbs, neg_adverbs = labels_tuple
         query = self.verb_embedding(verbs)
         video_emb, attention_weights = self.attention(video_features, query)

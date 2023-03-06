@@ -1,3 +1,5 @@
+# Extract S3D features
+
 import argparse
 import sys
 from pathlib import Path
@@ -17,20 +19,22 @@ from s3dg import S3D
 
 
 def create_parser():
-    parser = argparse.ArgumentParser(add_help=True)
-    parser.add_argument('train_df_path', type=Path)
-    parser.add_argument('test_df_path', type=Path)
-    parser.add_argument('frames_path', type=Path)
-    parser.add_argument('output_path', type=Path)
-    parser.add_argument('s3d_init_folder', type=Path)
-    parser.add_argument('--stack_size', default=16, type=int)
-    parser.add_argument('--stride', default=1, type=int)
-    parser.add_argument('--batch_size', default=64, type=int)
-    parser.add_argument('--workers', default=8, type=int)
-    parser.add_argument('--jpg_digits', default=6, type=int)
-    parser.add_argument('--jpg_prefix', default='frame_')
-    parser.add_argument('--rgb_height', default=226, type=int)
-    parser.add_argument('--crop_size', default=224, type=int)
+    parser = argparse.ArgumentParser(add_help=True, description='Extract S3D features')
+    parser.add_argument('train_df_path', type=Path, help='Path to the train set''s csv file')
+    parser.add_argument('test_df_path', type=Path, help='Path to the test set''s csv file')
+    parser.add_argument('frames_path', type=Path, help='Path to the extracted frames')
+    parser.add_argument('output_path', type=Path, help='Where you want to save the features')
+    parser.add_argument('s3d_init_folder', type=Path, help='Path to the S3D checkpoint folder. You can find the model '
+                                                           'weights at https://github.com/antoine77340/S3D_HowTo100M')
+    parser.add_argument('--stack_size', default=16, type=int, help='Number of frames to be stacked as input to S3D')
+    parser.add_argument('--stride', default=1, type=int, help='Stride in seconds')
+    parser.add_argument('--batch_size', default=64, type=int, help='Batch size to extract features in parallel')
+    parser.add_argument('--workers', default=8, type=int, help='Number of workers for the data loader')
+    parser.add_argument('--jpg_digits', default=6, type=int, help='Number of digits in the JPG frames'' file name')
+    parser.add_argument('--jpg_prefix', default='frame_', help='Prefix of the JPG frames'' file name')
+    parser.add_argument('--rgb_height', default=226, type=int, help='Height of the frame, in pixels')
+    parser.add_argument('--crop_size', default=224, type=int, help='Size of the central crop to be fed to S3D, '
+                                                                   'in pixels')
 
     return parser
 

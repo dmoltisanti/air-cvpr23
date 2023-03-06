@@ -1,3 +1,5 @@
+# Calculates delta using verb-adverb textual relationships. See paper for more details
+
 import torch
 import numpy as np
 from torch import pairwise_distance

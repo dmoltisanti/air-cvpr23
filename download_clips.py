@@ -1,3 +1,5 @@
+# Download and trims videos from YouTube using either youtube-dlp or yt-dl
+
 import argparse
 import subprocess
 import sys
@@ -11,17 +13,22 @@ from tqdm import tqdm
 
 
 def create_parser():
-    parser = argparse.ArgumentParser(add_help=True)
-    parser.add_argument('train_df_path', type=Path)
-    parser.add_argument('test_df_path', type=Path)
-    parser.add_argument('output_path', type=Path)
+    parser = argparse.ArgumentParser(add_help=True, description='Download and trims videos from YouTube using either '
+                                                                'youtube-dlp or yt-dl '
+                                                                '(which you should install yourself). It uses '
+                                                                'multiprocessing to speed up downloading and trimming')
+    parser.add_argument('train_df_path', type=Path, help='Path to the train set''s csv file')
+    parser.add_argument('test_df_path', type=Path, help='Path to the test set''s csv file')
+    parser.add_argument('output_path', type=Path, help='Where you want to save the videos')
     parser.add_argument('yt_cookies_path', type=Path, help='Path to a txt file storing your YT cookies. This is '
                                                            'needed to download some age-restricted videos. '
                                                            'You can use https://github.com/hrdl-github/cookies-txt '
                                                            'to store cookies in a text file')
-    parser.add_argument('--n_proc', default=12, type=int)
+    parser.add_argument('--n_proc', default=12, type=int, help='How many process you want to run in parallel to '
+                                                               'download videos')
     parser.add_argument('--use_youtube_dl', action='store_true', help='Use youtube-dl instead of the default '
-                                                                      'yt-dlp (not recommended)')
+                                                                      'yt-dlp (not recommended as yt-dlp is '
+                                                                      'now deprecated in favour of youtube-dl)')
     return parser
 
 

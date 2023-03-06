@@ -1,3 +1,5 @@
+# Dataset class for pre-extracted S3D features
+
 import numpy as np
 import pandas as pd
 import torch

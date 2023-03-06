@@ -1,49 +1,64 @@
+# Code for the CVPR 23 paper: "Learning Action Changes by Measuring Verb-Adverb Textual Relationships"
+
+
 import argparse
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import torch
-from evaluator import Evaluator
-from model import RegClsAdverbModel
 from sklearn.metrics import average_precision_score
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from dataset import Dataset, collate_variable_length_seq, get_verbs_adverbs_pairs
+from evaluator import Evaluator
+from model import RegClsAdverbModel
 
 
 def create_parser():
-    parser = argparse.ArgumentParser(add_help=True)
-    parser.add_argument('train_df_path', type=Path)
-    parser.add_argument('test_df_path', type=Path)
-    parser.add_argument('antonyms_df', type=Path)
-    parser.add_argument('features_path', type=Path)
-    parser.add_argument('output_path', type=Path)
-    parser.add_argument('--checkpoint_path', default=None, type=Path)
-    parser.add_argument('--train_batch', default=64, type=int)
-    parser.add_argument('--train_workers', default=8, type=int)
-    parser.add_argument('--test_batch', default=256, type=int)
-    parser.add_argument('--test_workers', default=8, type=int)
-    parser.add_argument('--lr', default=1e-4, type=float)
-    parser.add_argument('--dropout', default=0.5, type=float)
-    parser.add_argument('--weight_decay', default=5e-5, type=float)
-    parser.add_argument('--epochs', default=1000, type=int)
-    parser.add_argument('--run_tags', default=['lr', 'train_batch', 'dropout', 's3d_video_f'], action='append')
-    parser.add_argument('--tag', default=None, type=str)
-    parser.add_argument('--train_only', action='store_true')
-    parser.add_argument('--test_only', action='store_true')
-    parser.add_argument('--test_frequency', default=10, type=int)
-    parser.add_argument('--hidden_units', default='512,512,512', type=str)
-    parser.add_argument('--s3d_init_folder', type=Path, default='./s3d')  # TODO clone repo and download stuff in the setup
-    parser.add_argument('--s3d_video_f', default='s3d_features', type=str)
-    parser.add_argument('--text_emb_dim', default=512, type=int)
-
-    parser.add_argument('--no_antonyms', action='store_true')
-    parser.add_argument('--fixed_d', action='store_true')
-    parser.add_argument('--cls_variant', action='store_true')
+    parser = argparse.ArgumentParser(add_help=True, description='Code to run the model presented in the CVPR 23 '
+                                                                'paper "Learning Action Changes by Measuring '
+                                                                'Verb-Adverb Textual Relationships"')
+    parser.add_argument('train_df_path', type=Path, help='Path to the dataset''s train set')
+    parser.add_argument('test_df_path', type=Path, help='Path to the dataset''s test set')
+    parser.add_argument('antonyms_df', type=Path, help='Path to the dataset''s antonyms csv')
+    parser.add_argument('features_path', type=Path, help='Path to the pre-extracted S3D features')
+    parser.add_argument('output_path', type=Path, help='Where you want to save logs, checkpoints and results')
+    parser.add_argument('--train_batch', default=64, type=int, help='Training batch size')
+    parser.add_argument('--train_workers', default=8, type=int, help='Number of workers for the training data loader')
+    parser.add_argument('--test_batch', default=256, type=int, help='Testing batch size')
+    parser.add_argument('--test_workers', default=8, type=int, help='Number of workers for the testing data loader')
+    parser.add_argument('--lr', default=1e-4, type=float, help='Learning rate')
+    parser.add_argument('--dropout', default=0.5, type=float, help='Dropout for the model')
+    parser.add_argument('--weight_decay', default=5e-5, type=float, help='Weight decay for the optimiser')
+    parser.add_argument('--epochs', default=1000, type=int, help='Number of training epochs')
+    parser.add_argument('--run_tags', default=['lr', 'train_batch', 'dropout'], action='append',
+                        help='What arguments should be used to create a run id, i.e. an output folder name')
+    parser.add_argument('--tag', default=None, type=str, help='Any additional tag to be added to the run id')
+    parser.add_argument('--test_frequency', default=10, type=int, help='How often the model should be evaluated on '
+                                                                       'the test set')
+    parser.add_argument('--hidden_units', default='512,512,512', type=str, help='Number of layers and hidden units '
+                                                                                'for the model''s MLP, to be '
+                                                                                'specified as a string of comma-'
+                                                                                'separated integers. For example, '
+                                                                                '512,512,512 will create 3 hidden '
+                                                                                'layers, each with 512 hidden units')
+    parser.add_argument('--s3d_init_folder', type=Path, default='./s3d_init_folder', help='Path to the S3D checkpoint. '
+                                                                                          'This will be downloaded '
+                                                                                          'automatically if you run '
+                                                                                          'setup.bash. Otherwise, you '
+                                                                                          'can download them from '
+                                                                                          'https://github.com/'
+                                                                                          'antoine77340/'
+                                                                                          'S3D_HowTo100M')  # TODO clone repo and download stuff in the setup
+    parser.add_argument('--no_antonyms', action='store_true', help='Whether you want to discard antonyms. See '
+                                                                   'paper for more details')
+    parser.add_argument('--fixed_d', action='store_true', help='Runs the regression variant with fixed delta equal to '
+                                                               '1. See paper for more details')
+    parser.add_argument('--cls_variant', action='store_true', help='Runs the classification variant. See paper '
+                                                                   'for more details')
 
     return parser
 
@@ -54,11 +69,11 @@ def setup_data(args):
     antonyms_df = pd.read_csv(args.antonyms_df)
     dataset_data = get_verbs_adverbs_pairs(train_df, test_df)
 
-    feature_dim = 512 if args.s3d_video_f == 'video_embedding_joint_space' else 1024
+    feature_dim = 1024
     collate_fn = collate_variable_length_seq
 
-    features_train, _ = load_features(args, 'train')
-    features_test, _ = load_features(args, 'test')
+    features_train = load_features(args, 'train')
+    features_test = load_features(args, 'test')
 
     train_dataset = Dataset(train_df, antonyms_df, features_train, dataset_data, feature_dim,
                             no_antonyms=args.no_antonyms)
@@ -81,37 +96,22 @@ def load_features(args, set_):
     print(f'Loading features from {features_path}')
     fd = torch.load(features_path, map_location=torch.device('cpu'))
     features = fd['features']
-    feature_dim = None
 
     for k, v in features.items():
         if isinstance(v, torch.Tensor):
             features[k] = v
-
-            if feature_dim is None:
-                feature_dim = v.shape[1]
         else:
             assert isinstance(v, dict)
             features[k] = {kk: vv for kk, vv in v.items()}
 
-            if feature_dim is None:
-                feature_dim = v[args.s3d_video_f].shape[1]
-
     feature_dict['features'] = features
     feature_dict['metadata'] = fd['metadata']
 
-    return feature_dict, feature_dim
+    return feature_dict
 
 
 def setup_model(train_dataset, args, cuda=True):
     model = RegClsAdverbModel(train_dataset, args)
-
-    if args.checkpoint_path is not None:
-        print(f'Loading checkpoint {args.checkpoint_path}')
-        state_dict = torch.load(args.checkpoint_path)
-        state_dict = state_dict['model_state']
-        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=True)
-        missing_keys = [k for k in missing_keys if not k.startswith('s3d_model')]
-        assert len(missing_keys) == 0, missing_keys
 
     if torch.cuda.is_available() and cuda:
         model = model.cuda()
@@ -336,13 +336,9 @@ def run(model, train_loader, test_loader, optimiser, criterion, args, evaluators
         print(f'EPOCH {epoch}')
         print('=' * 120)
 
-        if not args.test_only:
-            train_loss, train_scores, train_metadata = train(train_loader, model, optimiser, criterion, train_eval)
-            train_metrics = compute_evaluation_metrics(train_scores, len(train_loader.dataset))
-            log_run(epoch, log_writer, train_metrics, train_loss, 'Train')
-        else:
-            train_loss = None
-            train_metrics = {}
+        train_loss, train_scores, train_metadata = train(train_loader, model, optimiser, criterion, train_eval)
+        train_metrics = compute_evaluation_metrics(train_scores, len(train_loader.dataset))
+        log_run(epoch, log_writer, train_metrics, train_loss, 'Train')
 
         if epoch == 1 or epoch % args.test_frequency == 0:
             test_loss, test_scores, test_metadata = test(model, test_loader, criterion, test_eval)
@@ -373,7 +369,7 @@ def run(model, train_loader, test_loader, optimiser, criterion, args, evaluators
             if best_metric is None or summary_dict.get(metric, None) is None:
                 continue
 
-            if summary_dict[metric] > best_metric or args.test_only:
+            if summary_dict[metric] > best_metric:
                 metrics_meters[metric] = summary_dict[metric]
 
                 if metric in dump_for:
@@ -386,9 +382,6 @@ def run(model, train_loader, test_loader, optimiser, criterion, args, evaluators
 
                     state = dict(model_state=state_dict, optimiser=optimiser.state_dict(), epoch=epoch)
                     torch.save(state, best_state_path)
-
-        if args.test_only:
-            break
 
     log_writer.close()
 
