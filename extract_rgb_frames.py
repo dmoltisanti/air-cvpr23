@@ -74,7 +74,7 @@ def extract_frames_for_df(df, videos_path, output_path, ext='mp4', frame_height=
         errors = pd.DataFrame(errors)
         errors.to_csv(output_path.parent / f'{output_path.stem}_errors.csv', index=False)
     else:
-        print('No errors')
+        print('No ffmpeg errors')
 
     print('All done')
 
