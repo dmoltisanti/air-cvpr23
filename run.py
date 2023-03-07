@@ -26,15 +26,16 @@ def create_parser():
     parser.add_argument('antonyms_df', type=Path, help='Path to the dataset''s antonyms csv')
     parser.add_argument('features_path', type=Path, help='Path to the pre-extracted S3D features')
     parser.add_argument('output_path', type=Path, help='Where you want to save logs, checkpoints and results')
-    parser.add_argument('--train_batch', default=64, type=int, help='Training batch size')
+    parser.add_argument('--train_batch', default=512, type=int, help='Training batch size')
     parser.add_argument('--train_workers', default=8, type=int, help='Number of workers for the training data loader')
-    parser.add_argument('--test_batch', default=256, type=int, help='Testing batch size')
+    parser.add_argument('--test_batch', default=512, type=int, help='Testing batch size')
     parser.add_argument('--test_workers', default=8, type=int, help='Number of workers for the testing data loader')
     parser.add_argument('--lr', default=1e-4, type=float, help='Learning rate')
-    parser.add_argument('--dropout', default=0.5, type=float, help='Dropout for the model')
+    parser.add_argument('--dropout', default=0.1, type=float, help='Dropout for the model')
     parser.add_argument('--weight_decay', default=5e-5, type=float, help='Weight decay for the optimiser')
     parser.add_argument('--epochs', default=1000, type=int, help='Number of training epochs')
-    parser.add_argument('--run_tags', default=['lr', 'train_batch', 'dropout'], action='append',
+    parser.add_argument('--run_tags', default=['lr', 'train_batch', 'dropout', 'weight_decay',
+                                               'hidden_units'], action='append',
                         help='What arguments should be used to create a run id, i.e. an output folder name')
     parser.add_argument('--tag', default=None, type=str, help='Any additional tag to be added to the run id')
     parser.add_argument('--test_frequency', default=10, type=int, help='How often the model should be evaluated on '
