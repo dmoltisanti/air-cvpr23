@@ -13,3 +13,4 @@ dependencies:
   - tensorboard
   - pip:
     - opencv-python
+    - yt-dlp
