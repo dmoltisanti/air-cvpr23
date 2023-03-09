@@ -75,6 +75,20 @@ We provide pre-extracted S3D features [here](https://github.com/dmoltisanti/air-
 
 These were obtained with stack size equal to 16 frames and stride equal to 1 second (as specified in the paper).
 
+Features are stored as PyTorch dictionaries with the following structure:
+
+- `features`:
+  - `${seg_id}`:
+    - `s3d_features`: Tx1024 PyTorch tensor, where T is the number of stacks. These are the video features named `mixed_5c` in S3D
+    - `video_embedding_joint_space`:  Tx512 PyTorch tensor, where T is the same as above. These are the video-text joint embeddings named `video_embedding` in S3D     
+- `metadata`:
+  - `${seg_id}`:
+    - `start_time`: start time of the segment (in seconds)
+    - `end_time`: end time of the segment (in seconds)
+    - `clustered_verb`: verb associated with the segment
+    - `clustered_adverb`: adverb associated with the segment
+    - `frame_samples`: frame indices (relative to the trimmed video) sampled to extract the features
+
 # Code
 
 You can use the Python script `run.py` to try our method. Usage below:
