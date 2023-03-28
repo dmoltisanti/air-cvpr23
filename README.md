@@ -17,6 +17,8 @@ journal = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
 year = {2023}}
 ```
 
+You can read our paper [on arXiv](https://arxiv.org/abs/2303.15086).
+
 ### Authors
 
 - [Davide Moltisanti](https://www.davidemoltisanti.com/research/)
