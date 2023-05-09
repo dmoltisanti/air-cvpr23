@@ -324,3 +324,17 @@ All bash scripts should be run from the repository's root, e.g. `bash ./scripts/
 
 If you need help don't hesitate to open a GitHub issue!
 
+# Errata 09/05/2023
+
+We found out that there was an issue with our experiments on AIR, ActivityNet Adverbs and MSR-VTT Adverbs.
+These datasets have videos with variable duration, thus we used zero-padding to pack the 
+pre-extracted S3D video features. The problem was that we were not masking the padding elements during attention, 
+so the model was allowed to look at padding 0 elements. This caused the model to learn some spurious correlation, 
+and caused results to also depend on the batch size and order during testing. 
+
+We updated the code on 09/05/2023, so experiments run before this date will suffer from this issue. 
+Please update the code by pulling the repository and retrain your model.  
+
+You can find the [new results with attention masking here](results_with_attention_masking.md).
+We will also update our paper on arXiv with the new results.
+

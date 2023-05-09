@@ -87,7 +87,8 @@ class RegClsAdverbModel(nn.Module):
         video_features = features['s3d_features']
         adverbs, verbs, neg_adverbs = labels_tuple
         query = self.verb_embedding(verbs)
-        video_emb, attention_weights = self.attention(video_features, query)
+        padding_mask = video_features == 0
+        video_emb, attention_weights = self.attention(video_features, query, padding_mask=padding_mask)
 
         o = self.rho(video_emb)
 
