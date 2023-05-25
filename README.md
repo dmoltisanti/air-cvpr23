@@ -28,6 +28,11 @@ You can read our paper [on arXiv](https://arxiv.org/abs/2303.15086).
 
 All authors are at the University of Edinburgh.
 
+### Videos
+
+- [Video summary of the paper](https://www.youtube.com/watch?v=orQ3YgVMXYk)
+- [AIR video samples](https://youtu.be/YPNw35vtyu8)
+
 # The AIR (Adverbs in Recipes) dataset
 
 Adverbs in Recipes (AIR) is our new dataset specifically collected for adverb recognition. 
